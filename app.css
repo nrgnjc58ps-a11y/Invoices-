@@ -170,3 +170,7 @@ body.privacy-blur main,body.privacy-blur .drawer{filter:blur(18px)}
   .brand span{display:none}
   .preview{position:static}
 }
+
+/* Performance cards */
+.item-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.p-table td.nw{white-space:nowrap}

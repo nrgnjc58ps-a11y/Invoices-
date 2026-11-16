@@ -1,6 +1,6 @@
 # Tally Invoices
 
-A small invoice maker for iPhone (it works in any modern browser too). Fill in your business, client and line items, see the invoice as you type, and save it as a PDF.
+A small invoice maker for music gigs in the UK, built for iPhone (it works in any modern browser too). Add each performance with its date, venue, band or artist and fee, see the invoice as you type, and save it as a PDF.
 
 **It runs entirely on your phone.** Once installed, it works with no internet connection. Invoices, client details and bank details are stored only on the device. They are never sent to this website or anywhere else, and the app is blocked from contacting other websites.
 
@@ -14,13 +14,16 @@ Always use the home-screen icon. The home-screen app keeps its own storage, sepa
 
 ## Features
 
-- Business and client details, optional logo
-- Line items, 15 currencies, payment terms with automatic due dates
-- Discount (% or amount), tax after discount, amount already paid, a PAID stamp
-- PDF on A4 or US Letter, shared through the iPhone share sheet (Save to Files, Mail, Messages)
+- Your details, client (venue, promoter or agent), optional logo
+- One line per performance: **date of performance, venue, band or artist, fee**. Add several gigs to one invoice.
+- Amounts in pounds sterling (£), A4 PDF
+- Payment due on receipt, within 7, 14 or 30 days, or on a date you pick
+- Deposit already paid, balance due, and a PAID stamp once it's settled
+- No tax or VAT lines
+- PDF shared through the iPhone share sheet (Save to Files, Mail, Messages)
 - Saved invoices marked Open, Overdue or Paid
 - **Passcode lock**: AES-256-GCM encryption with a key derived from your passcode (PBKDF2-SHA-256, 600,000 iterations). Locks after 5 minutes idle or a minute away.
-- Option to never store payment instructions on the device
+- Option to never store payment details on the device
 - **Encrypted backup and restore** to Files or iCloud Drive
 - One-tap erase
 

@@ -1,6 +1,5 @@
 (() => {
 const $ = id => document.getElementById(id);
-const CURRENCIES = [["USD","US dollar"],["EUR","Euro"],["GBP","British pound"],["CAD","Canadian dollar"],["AUD","Australian dollar"],["NZD","New Zealand dollar"],["CHF","Swiss franc"],["JPY","Japanese yen"],["SEK","Swedish krona"],["NOK","Norwegian krone"],["DKK","Danish krone"],["SGD","Singapore dollar"],["HKD","Hong Kong dollar"],["ZAR","South African rand"],["MXN","Mexican peso"]];
 const SWATCHES = ["#136F63","#1F3A93","#8A2B4A","#B05A16","#3D4A5C","#2B2B2B"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const KEY_DRAFT = "tally.draft.v1", KEY_SAVED = "tally.saved.v1", KEY_VAULT = "tally.vault.v1", KEY_PREFS = "tally.prefs.v1";
@@ -15,16 +14,16 @@ const parseDate = s => { const [y, m, d] = String(s).split("-").map(Number); ret
 const validDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "");
 const addDays = (s, n) => { const d = parseDate(s); d.setDate(d.getDate() + n); return iso(d); };
 const pretty = s => { if (!validDate(s)) return "—"; const d = parseDate(s); return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear(); };
-const fmtCache = {};
-const nf = c => fmtCache[c] || (fmtCache[c] = new Intl.NumberFormat("en-US", {style: "currency", currency: c}));
-const money = (n, c) => nf(c).format(n).replace(/[\u00A0\u202F]/g, " ");
-const digits = c => nf(c).resolvedOptions().maximumFractionDigits;
+const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const prettyDay = s => validDate(s) ? DAYS[parseDate(s).getDay()] + " " + pretty(s) : "Date to add";
+const GBP = new Intl.NumberFormat("en-GB", {style: "currency", currency: "GBP"});
+const money = n => GBP.format(n).replace(/[\u00A0\u202F]/g, " ");
 const store = {
   get(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch {} }
 };
-const termsLabel = t => t === "custom" ? "" : (t === "0" ? "Due on receipt" : "Net " + t);
+const termsLabel = t => t === "custom" ? "" : (t === "0" ? "Due on receipt" : "Within " + t + " days");
 function nextNumber(s) {
   const m = String(s || "").match(/^(.*?)(\d+)(\D*)$/);
   if (!m) return (s || "INV") + "-0002";
@@ -33,48 +32,64 @@ function nextNumber(s) {
 }
 
 /* ---------- state ---------- */
+const newPerf = (artist = "") => ({id: uid(), date: "", venue: "", artist, fee: ""});
 function blankState(prev) {
   const today = iso(new Date());
+  const terms = prev && prev.terms ? prev.terms : "14";
   return {
-    example: false,
-    biz: prev ? {...prev.biz} : {name: "", address: "", email: "", phone: "", taxId: ""},
+    example: false, currency: "GBP",
+    biz: prev ? {...prev.biz} : {name: "", address: "", email: "", phone: ""},
     logo: prev ? prev.logo : null,
     client: {name: "", address: "", email: ""},
     number: prev ? nextNumber(prev.number) : "INV-0001",
-    currency: prev ? prev.currency : "USD",
-    issueDate: today, terms: prev ? prev.terms : "14", dueDate: addDays(today, prev && prev.terms !== "custom" ? +prev.terms : 14),
-    items: [{id: uid(), desc: "", qty: "1", price: ""}],
-    discount: "", discountType: "pct", taxLabel: prev ? prev.taxLabel : "Tax", taxRate: prev ? prev.taxRate : "", paid: "",
-    payment: prev ? prev.payment : "", notes: prev ? prev.notes : "Thank you for your business.",
-    accent: prev ? prev.accent : SWATCHES[0], paper: prev ? prev.paper : "a4"
+    issueDate: today, terms, dueDate: addDays(today, terms === "custom" ? 14 : +terms),
+    items: [newPerf(prev && prev.items && prev.items[0] ? prev.items[0].artist : "")],
+    paid: "",
+    payment: prev ? prev.payment : "", notes: prev ? prev.notes : "Thank you for booking us.",
+    accent: prev ? prev.accent : SWATCHES[0]
   };
 }
 function exampleState() {
   const today = iso(new Date());
   return {
-    example: true,
-    biz: {name: "Northwind Design Co.", address: "48 Harbour Street\nPortland, ME 04101", email: "billing@northwind.example", phone: "(207) 555-0142", taxId: ""},
+    example: true, currency: "GBP",
+    biz: {name: "Sam Carter Music", address: "12 Example Road\nBristol", email: "bookings@samcarter.example", phone: "07700 900123"},
     logo: null,
-    client: {name: "Alder & Finch Bakery", address: "1210 Commercial Avenue\nPortland, ME 04102", email: "accounts@alderfinch.example"},
-    number: "INV-0001", currency: "USD",
+    client: {name: "The Lantern Rooms", address: "Old Market Street\nBristol", email: "events@lanternrooms.example"},
+    number: "INV-0001",
     issueDate: today, terms: "14", dueDate: addDays(today, 14),
     items: [
-      {id: uid(), desc: "Brand identity workshop (half day)", qty: "1", price: "850"},
-      {id: uid(), desc: "Logo design: 3 concepts, 2 rounds of revisions", qty: "1", price: "1400"},
-      {id: uid(), desc: "Menu board layout (hours)", qty: "6", price: "85"}
+      {id: uid(), date: addDays(today, -9), venue: "The Lantern Rooms, Bristol", artist: "The Midnight Owls", fee: "450"},
+      {id: uid(), date: addDays(today, -2), venue: "The Lantern Rooms, Bristol", artist: "The Midnight Owls", fee: "450"}
     ],
-    discount: "5", discountType: "pct", taxLabel: "Tax", taxRate: "8", paid: "",
-    payment: "Bank transfer to Example Bank\nAccount 00000000, routing 000000000\nUse the invoice number as the payment reference.",
-    notes: "Thank you for your business.",
-    accent: SWATCHES[0], paper: "letter"
+    paid: "100",
+    payment: "Bank transfer\nAccount name: S Carter\nSort code: 00-00-00\nAccount number: 00000000\nPlease use the invoice number as the reference.",
+    notes: "Thank you for booking us.",
+    accent: SWATCHES[0]
   };
 }
+// Bring invoices saved by earlier versions into the gig layout without losing anything.
+function normalize(s) {
+  if (!s || typeof s !== "object") return s;
+  s.currency = "GBP";
+  s.items = (Array.isArray(s.items) ? s.items : []).map(it => {
+    const q = it.qty === undefined || it.qty === "" ? 1 : num(it.qty);
+    return {
+      id: it.id || uid(), date: it.date || "", venue: it.venue ?? (it.desc || ""), artist: it.artist || "",
+      fee: it.fee ?? (it.price !== undefined && it.price !== "" ? String(Math.round(q * num(it.price) * 100) / 100) : "")
+    };
+  });
+  if (!s.items.length) s.items.push(newPerf());
+  ["discount", "discountType", "taxLabel", "taxRate", "paper"].forEach(k => delete s[k]);
+  if (s.biz) delete s.biz.taxId;
+  return s;
+}
+const normalizeList = list => (Array.isArray(list) ? list : []).filter(e => e && e.state).map(e => ({...e, state: normalize(e.state)}));
 let prefs = Object.assign({noPayment: false, fails: 0, until: 0}, store.get(KEY_PREFS, {}));
 let lockEnabled = !!store.get(KEY_VAULT, null);
 let cryptoKey = null, vaultSalt = null;
-let state = lockEnabled ? blankState(null) : (store.get(KEY_DRAFT, null) || exampleState());
-let saved = lockEnabled ? [] : store.get(KEY_SAVED, []);
-if (!Array.isArray(saved)) saved = [];
+let state = lockEnabled ? blankState(null) : (normalize(store.get(KEY_DRAFT, null)) || exampleState());
+let saved = lockEnabled ? [] : normalizeList(store.get(KEY_SAVED, []));
 
 /* ---------- encryption (AES-GCM 256, key from passcode via PBKDF2-SHA256) ---------- */
 const hasCrypto = !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
@@ -112,17 +127,12 @@ function persistAll() {
 }
 
 function totals(s) {
-  const d = digits(s.currency), f = 10 ** d;
-  const r = x => Math.round((x + Number.EPSILON) * f) / f;
-  const lines = s.items.map(it => r(num(it.qty) * num(it.price)));
-  const subtotal = r(lines.reduce((a, b) => a + b, 0));
-  const discount = s.discountType === "pct" ? r(subtotal * Math.min(num(s.discount), 100) / 100) : r(Math.min(num(s.discount), subtotal));
-  const taxable = r(subtotal - discount);
-  const tax = r(taxable * num(s.taxRate) / 100);
-  const total = r(taxable + tax);
+  const r = x => Math.round((x + Number.EPSILON) * 100) / 100;
+  const lines = s.items.map(it => r(num(it.fee)));
+  const total = r(lines.reduce((a, b) => a + b, 0));
   const paid = r(num(s.paid));
   const due = r(total - paid);
-  return {lines, subtotal, discount, tax, total, paid, due, isPaid: total > 0 && due <= 0};
+  return {lines, total, paid, due, isPaid: total > 0 && due <= 0};
 }
 function status(s) {
   const t = totals(s);
@@ -140,32 +150,23 @@ function fillForm() {
   $("inv-issue").value = state.issueDate || "";
   $("inv-terms").value = state.terms;
   $("inv-due").value = state.dueDate || "";
-  setSeg("disc-pct", "disc-flat", state.discountType === "pct");
-  setSeg("paper-a4", "paper-letter", state.paper === "a4");
   renderLogo(); renderSwatches(); renderItems();
 }
-function setSeg(a, b, firstOn) { $(a).setAttribute("aria-pressed", firstOn); $(b).setAttribute("aria-pressed", !firstOn); }
-
-$("inv-currency").innerHTML = CURRENCIES.map(([c, n]) => `<option value="${c}">${c} · ${n}</option>`).join("");
 
 function renderItems() {
   $("items").innerHTML = state.items.map((it, i) => `
     <div class="item" data-id="${it.id}">
-      <label class="field"><span class="lbl">Line ${i + 1}</span>
-        <textarea id="desc-${it.id}" class="i-desc" rows="1" placeholder="What you did or sold">${esc(it.desc)}</textarea></label>
-      <div class="item-nums">
-        <label class="field"><span>Qty</span><input id="qty-${it.id}" class="i-qty" type="number" step="any" min="0" inputmode="decimal" value="${esc(it.qty)}"></label>
-        <label class="field"><span>Unit price</span><input id="price-${it.id}" class="i-price" type="number" step="any" min="0" inputmode="decimal" value="${esc(it.price)}" placeholder="0.00"></label>
-        <div class="amt"><span class="lbl">Amount</span><output id="amt-${it.id}"></output></div>
-        <button type="button" class="icon-btn i-del" aria-label="Remove line ${i + 1}" title="Remove line">×</button>
+      <div class="item-head"><span class="lbl">Performance ${i + 1}</span>
+        <button type="button" class="icon-btn i-del" aria-label="Remove performance ${i + 1}" title="Remove performance">×</button></div>
+      <div class="row">
+        <label class="field"><span>Date of performance</span><input id="date-${it.id}" class="i-date" type="date" value="${esc(it.date)}"></label>
+        <label class="field"><span>Fee (£)</span><input id="fee-${it.id}" class="i-fee" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(it.fee)}" placeholder="0.00"></label>
       </div>
+      <label class="field"><span>Venue</span><input id="venue-${it.id}" class="i-venue" type="text" value="${esc(it.venue)}" placeholder="Venue name and town"></label>
+      <label class="field"><span>Band or artist</span><input id="artist-${it.id}" class="i-artist" type="text" value="${esc(it.artist)}" placeholder="Who performed"></label>
     </div>`).join("");
-  updateAmounts();
 }
-function updateAmounts() {
-  const t = totals(state);
-  state.items.forEach((it, i) => { const o = $("amt-" + it.id); if (o) o.textContent = money(t.lines[i], state.currency); });
-}
+function updateAmounts() {}
 function renderSwatches() {
   const custom = !SWATCHES.includes(state.accent);
   $("swatches").innerHTML = SWATCHES.map(c => `<button type="button" class="sw" style="background:${c}" data-color="${c}" aria-label="Colour ${c}" aria-pressed="${state.accent === c}"></button>`).join("")
@@ -182,24 +183,21 @@ function hexToRgb(h) { const m = /^#?([\da-f]{6})$/i.exec(h || ""); const n = m 
 function tint(rgb, k) { return rgb.map(v => Math.round(v + (255 - v) * k)); }
 
 function renderPreview() {
-  const s = state, t = totals(s), c = s.currency, m = n => money(n, c);
+  const s = state, t = totals(s), m = money;
   const paper = $("paper");
   paper.style.setProperty("--inv", s.accent);
   paper.style.setProperty("--inv-soft", "rgb(" + tint(hexToRgb(s.accent), .88).join(",") + ")");
-  const bizLines = [s.biz.email, s.biz.phone, s.biz.taxId].filter(Boolean).map(esc).join("<br>");
-  const rows = s.items.filter(it => it.desc || num(it.price) || num(it.qty) !== 1).map((it) => {
-    const i = s.items.indexOf(it);
-    return `<tr><td class="pre">${esc(it.desc) || '<span class="p-muted">Untitled item</span>'}</td><td class="n">${esc(num(it.qty))}</td><td class="n">${m(num(it.price))}</td><td class="n">${m(t.lines[i])}</td></tr>`;
-  }).join("") || `<tr><td class="empty" colspan="4">Add a line item to see it here</td></tr>`;
-  const disc = t.discount ? `<dt>Discount${s.discountType === "pct" ? " (" + esc(num(s.discount)) + "%)" : ""}</dt><dd>\u2212${m(t.discount)}</dd>` : "";
-  const tax = num(s.taxRate) ? `<dt>${esc(s.taxLabel || "Tax")} (${esc(num(s.taxRate))}%)</dt><dd>${m(t.tax)}</dd>` : "";
-  const paid = t.paid ? `<dt>Paid</dt><dd>\u2212${m(t.paid)}</dd>` : "";
+  const bizLines = [s.biz.email, s.biz.phone].filter(Boolean).map(esc).join("<br>");
+  const rows = s.items.filter(it => it.date || it.venue || it.artist || num(it.fee)).map(it =>
+    `<tr><td class="nw">${prettyDay(it.date)}</td><td class="pre">${esc(it.artist) || "—"}</td><td class="pre">${esc(it.venue) || "—"}</td><td class="n">${m(num(it.fee))}</td></tr>`
+  ).join("") || `<tr><td class="empty" colspan="4">Add a performance to see it here</td></tr>`;
+  const paid = t.paid ? `<dt>Deposit paid</dt><dd>\u2212${m(t.paid)}</dd>` : "";
   const tl = termsLabel(s.terms);
   paper.innerHTML = `
     <div class="p-top">
       <div class="p-from">
         ${s.logo ? `<img class="p-logo" src="${s.logo.data}" alt="">` : ""}
-        <div class="p-bizname">${esc(s.biz.name) || '<span class="p-muted">Your business name</span>'}</div>
+        <div class="p-bizname">${esc(s.biz.name) || '<span class="p-muted">Your name</span>'}</div>
         <div class="p-muted pre">${esc(s.biz.address)}</div>
         <div class="p-muted">${bizLines}</div>
       </div>
@@ -217,19 +215,18 @@ function renderPreview() {
         <div class="p-muted">${esc(s.client.email)}</div>
       </div>
       <dl class="p-meta">
-        <dt>Issue date</dt><dd>${pretty(s.issueDate)}</dd>
+        <dt>Invoice date</dt><dd>${pretty(s.issueDate)}</dd>
         <dt>Due date</dt><dd>${pretty(s.dueDate)}</dd>
         ${tl ? `<dt>Terms</dt><dd>${tl}</dd>` : ""}
         <dt class="due">Balance due</dt><dd class="due">${m(Math.max(t.due, 0))}</dd>
       </dl>
     </div>
     <div class="tablewrap"><table class="p-table">
-      <thead><tr><th>Description</th><th class="n">Qty</th><th class="n">Unit price</th><th class="n">Amount</th></tr></thead>
+      <thead><tr><th>Date of performance</th><th>Band / artist</th><th>Venue</th><th class="n">Fee</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <dl class="p-totals">
-      <dt>Subtotal</dt><dd>${m(t.subtotal)}</dd>${disc}${tax}
-      <dt class="grand">Total</dt><dd class="grand">${m(t.total)}</dd>${paid}
+      <dt class="grand">Total fee</dt><dd class="grand">${m(t.total)}</dd>${paid}
       <dt class="balance">Balance due</dt><dd class="balance">${m(Math.max(t.due, 0))}</dd>
     </dl>
     ${(s.payment || s.notes) ? `<div class="p-notes">
@@ -247,10 +244,10 @@ function pdfText(s) {
 }
 function buildPdf(s) {
   const {jsPDF} = window.jspdf;
-  const doc = new jsPDF({unit: "pt", format: s.paper === "letter" ? "letter" : "a4"});
+  const doc = new jsPDF({unit: "pt", format: "a4"});
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 50;
   const acc = hexToRgb(s.accent), soft = tint(acc, .88), ink = [27, 36, 48], mute = [102, 113, 127], hair = [222, 226, 232];
-  const t = totals(s), m = n => pdfText(money(n, s.currency));
+  const t = totals(s), m = n => pdfText(money(n));
   const bottom = H - M - 24;
   const font = (style, size, color) => { doc.setFont("helvetica", style); doc.setFontSize(size); doc.setTextColor(...color); };
 
@@ -263,9 +260,9 @@ function buildPdf(s) {
   }
   let ly = s.logo ? left : y;
   font("bold", 13, ink);
-  doc.text(pdfText(s.biz.name || "Your business"), M, ly + 11); ly += 28;
+  doc.text(pdfText(s.biz.name || "Your name"), M, ly + 11); ly += 28;
   font("normal", 9.5, mute);
-  const bizLines = [...String(s.biz.address || "").split("\n"), s.biz.email, s.biz.phone, s.biz.taxId].filter(Boolean);
+  const bizLines = [...String(s.biz.address || "").split("\n"), s.biz.email, s.biz.phone].filter(Boolean);
   bizLines.forEach(l => { doc.splitTextToSize(pdfText(l), 260).forEach(w => { doc.text(w, M, ly); ly += 13; }); });
 
   font("bold", 26, acc); doc.text("INVOICE", W - M, y + 20, {align: "right"});
@@ -287,7 +284,7 @@ function buildPdf(s) {
   [...String(s.client.address || "").split("\n"), s.client.email].filter(Boolean)
     .forEach(l => doc.splitTextToSize(pdfText(l), 250).forEach(w => { doc.text(w, M, by); by += 13; }));
 
-  const meta = [["Issue date", pretty(s.issueDate)], ["Due date", pretty(s.dueDate)]];
+  const meta = [["Invoice date", pretty(s.issueDate)], ["Due date", pretty(s.dueDate)]];
   const tl = termsLabel(s.terms); if (tl) meta.push(["Terms", tl]);
   let my = y + 2;
   meta.forEach(([k, v]) => { font("normal", 9.5, mute); doc.text(k, W - M - 190, my); font("normal", 9.5, ink); doc.text(pdfText(v), W - M, my, {align: "right"}); my += 15; });
@@ -295,43 +292,37 @@ function buildPdf(s) {
 
   y = Math.max(by, my) + 20;
 
-  // Items table
-  const xAmt = W - M, xPrice = W - M - 95, xQty = W - M - 185, descW = xQty - 40 - (M + 8);
+  // Performances table
+  const xDate = M + 8, xArtist = M + 126, xVenue = M + 276, xFee = W - M - 8;
+  const artistW = xVenue - xArtist - 14, venueW = (xFee - 70) - xVenue;
   const head = () => {
     doc.setFillColor(...acc); doc.rect(M, y, W - 2 * M, 22, "F");
-    font("bold", 8.5, [255, 255, 255]);
-    doc.text("DESCRIPTION", M + 8, y + 14.5); doc.text("QTY", xQty - 8, y + 14.5, {align: "right"});
-    doc.text("UNIT PRICE", xPrice - 8, y + 14.5, {align: "right"}); doc.text("AMOUNT", xAmt - 8, y + 14.5, {align: "right"});
+    font("bold", 8, [255, 255, 255]);
+    doc.text("DATE OF PERFORMANCE", xDate, y + 14.5); doc.text("BAND / ARTIST", xArtist, y + 14.5);
+    doc.text("VENUE", xVenue, y + 14.5); doc.text("FEE", xFee, y + 14.5, {align: "right"});
     y += 22;
   };
   head();
-  const items = s.items.map((it, i) => ({it, amt: t.lines[i]})).filter(({it}) => it.desc || num(it.price) || num(it.qty) !== 1);
-  items.forEach(({it, amt}) => {
+  s.items.map((it, i) => ({it, fee: t.lines[i]})).filter(({it}) => it.date || it.venue || it.artist || num(it.fee)).forEach(({it, fee}) => {
     font("normal", 9.5, ink);
-    const lines = doc.splitTextToSize(pdfText(it.desc || "Untitled item"), descW);
-    const rh = lines.length * 12.5 + 12;
+    const a = doc.splitTextToSize(pdfText(it.artist || "-"), artistW);
+    const v = doc.splitTextToSize(pdfText(it.venue || "-"), venueW);
+    const rh = Math.max(a.length, v.length) * 12.5 + 12;
     if (y + rh > bottom) { doc.addPage(); y = M; head(); font("normal", 9.5, ink); }
-    doc.text(lines, M + 8, y + 15);
-    doc.text(String(num(it.qty)), xQty - 8, y + 15, {align: "right"});
-    doc.text(m(num(it.price)), xPrice - 8, y + 15, {align: "right"});
-    doc.text(m(amt), xAmt - 8, y + 15, {align: "right"});
+    doc.text(pdfText(prettyDay(it.date)), xDate, y + 15);
+    doc.text(a, xArtist, y + 15); doc.text(v, xVenue, y + 15);
+    doc.text(m(fee), xFee, y + 15, {align: "right"});
     y += rh; doc.setDrawColor(...hair); doc.line(M, y, W - M, y);
   });
 
   // Totals
-  const rowsT = [["Subtotal", m(t.subtotal)]];
-  if (t.discount) rowsT.push(["Discount" + (s.discountType === "pct" ? " (" + num(s.discount) + "%)" : ""), "-" + m(t.discount)]);
-  if (num(s.taxRate)) rowsT.push([pdfText((s.taxLabel || "Tax") + " (" + num(s.taxRate) + "%)"), m(t.tax)]);
-  const need = rowsT.length * 16 + (t.paid ? 16 : 0) + 60;
-  y += 18;
-  if (y + need > bottom) { doc.addPage(); y = M; }
+  y += 22;
+  if (y + 80 > bottom) { doc.addPage(); y = M; }
   const tx = W - M - 230;
-  rowsT.forEach(([k, v]) => { font("normal", 9.5, mute); doc.text(k, tx, y); font("normal", 9.5, ink); doc.text(v, W - M - 8, y, {align: "right"}); y += 16; });
-  doc.setDrawColor(...hair); doc.line(tx, y - 8, W - M, y - 8); y += 6;
-  font("bold", 10.5, ink); doc.text("Total", tx, y); doc.text(m(t.total), W - M - 8, y, {align: "right"}); y += 16;
-  if (t.paid) { font("normal", 9.5, mute); doc.text("Paid", tx, y); font("normal", 9.5, ink); doc.text("-" + m(t.paid), W - M - 8, y, {align: "right"}); y += 16; }
+  font("bold", 10.5, ink); doc.text("Total fee", tx, y); doc.text(m(t.total), xFee, y, {align: "right"}); y += 16;
+  if (t.paid) { font("normal", 9.5, mute); doc.text("Deposit paid", tx, y); font("normal", 9.5, ink); doc.text("-" + m(t.paid), xFee, y, {align: "right"}); y += 16; }
   doc.setFillColor(...soft); doc.rect(tx - 8, y - 12, W - M - tx + 8, 22, "F");
-  font("bold", 11, acc); doc.text("Balance due", tx, y + 3); doc.text(m(Math.max(t.due, 0)), W - M - 8, y + 3, {align: "right"});
+  font("bold", 11, acc); doc.text("Balance due", tx, y + 3); doc.text(m(Math.max(t.due, 0)), xFee, y + 3, {align: "right"});
   y += 40;
 
   // Notes
@@ -390,7 +381,7 @@ function renderSaved() {
     return `<li data-i="${i}">
       <div class="s-main"><span class="s-num">${esc(e.state.number)}</span><span class="s-sub">${esc(e.state.client.name || "No client")} · issued ${pretty(e.state.issueDate)}</span></div>
       <span class="pill ${st}">${st === "late" ? "Overdue" : st === "paid" ? "Paid" : "Open"}</span>
-      <span class="s-amt">${esc(money(t.total, e.state.currency))}</span>
+      <span class="s-amt">${esc(money(t.total))}</span>
       <button type="button" class="btn s-open">Open</button>
       <button type="button" class="btn ghost danger s-del">Delete</button>
     </li>`;
@@ -417,13 +408,14 @@ function changed() {
 $("editor").addEventListener("submit", e => e.preventDefault());
 $("editor").addEventListener("input", e => {
   const el = e.target;
-  if (el.dataset.path) { setPath(state, el.dataset.path, el.value); if (el.dataset.path === "currency") updateAmounts(); return changed(); }
+  if (el.dataset.path) { setPath(state, el.dataset.path, el.value); return changed(); }
   const row = el.closest(".item");
   if (row) {
     const it = state.items.find(x => x.id === row.dataset.id); if (!it) return;
-    if (el.classList.contains("i-desc")) it.desc = el.value;
-    if (el.classList.contains("i-qty")) it.qty = el.value;
-    if (el.classList.contains("i-price")) it.price = el.value;
+    if (el.classList.contains("i-date")) it.date = el.value;
+    if (el.classList.contains("i-venue")) it.venue = el.value;
+    if (el.classList.contains("i-artist")) it.artist = el.value;
+    if (el.classList.contains("i-fee")) it.fee = el.value;
     return changed();
   }
   if (el.id === "accent-custom") { state.accent = el.value; document.querySelectorAll(".sw").forEach(b => b.setAttribute("aria-pressed", "false")); return changed(); }
@@ -444,17 +436,15 @@ $("items").addEventListener("click", e => {
   const b = e.target.closest(".i-del"); if (!b) return;
   const id = b.closest(".item").dataset.id;
   state.items = state.items.filter(x => x.id !== id);
-  if (!state.items.length) state.items.push({id: uid(), desc: "", qty: "1", price: ""});
+  if (!state.items.length) state.items.push(newPerf());
   renderItems(); changed();
 });
 $("btn-add-item").addEventListener("click", () => {
-  const it = {id: uid(), desc: "", qty: "1", price: ""}; state.items.push(it);
-  renderItems(); changed(); $("desc-" + it.id).focus();
+  const last = state.items[state.items.length - 1];
+  const it = newPerf(last ? last.artist : ""); if (last) it.venue = last.venue;
+  state.items.push(it);
+  renderItems(); changed(); $("date-" + it.id).focus();
 });
-$("disc-pct").addEventListener("click", () => { state.discountType = "pct"; setSeg("disc-pct", "disc-flat", true); changed(); });
-$("disc-flat").addEventListener("click", () => { state.discountType = "flat"; setSeg("disc-pct", "disc-flat", false); changed(); });
-$("paper-a4").addEventListener("click", () => { state.paper = "a4"; setSeg("paper-a4", "paper-letter", true); changed(); });
-$("paper-letter").addEventListener("click", () => { state.paper = "letter"; setSeg("paper-a4", "paper-letter", false); changed(); });
 $("swatches").addEventListener("click", e => {
   const b = e.target.closest(".sw"); if (!b) return;
   state.accent = b.dataset.color; renderSwatches(); changed();
@@ -612,7 +602,7 @@ $("lock-form").addEventListener("submit", async e => {
     const key = await deriveKey(pass, salt, v.iter || ITER);
     const data = await openVault(key, v);
     cryptoKey = key; vaultSalt = salt; prefs.fails = 0; prefs.until = 0; savePrefs();
-    state = data.draft || blankState(null); saved = Array.isArray(data.saved) ? data.saved : [];
+    state = normalize(data.draft) || blankState(null); saved = normalizeList(data.saved);
     document.body.classList.remove("is-locked"); $("lock").hidden = true; $("lock-pass").value = "";
     $("example-banner").hidden = !state.example;
     fillForm(); renderPreview(); renderSaved(); renderSecurity(); lastActive = Date.now();
@@ -687,7 +677,7 @@ $("bk-yes").addEventListener("click", async () => {
     $("lock-err").textContent = "Backup restored. Enter the passcode it was made with.";
   } else {
     lockEnabled = false;
-    state = b.data.draft || blankState(null); state.example = false; saved = b.data.saved;
+    state = normalize(b.data.draft) || blankState(null); state.example = false; saved = normalizeList(b.data.saved);
     persistAll(); fillForm(); renderPreview(); renderSaved(); renderSecurity();
     toast("Backup restored.");
   }
