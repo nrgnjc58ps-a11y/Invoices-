@@ -1,1 +1,47 @@
-# Invoices-
+# Tally Invoices
+
+A small invoice maker for iPhone (it works in any modern browser too). Fill in your business, client and line items, see the invoice as you type, and save it as a PDF.
+
+**It runs entirely on your phone.** Once installed, it works with no internet connection. Invoices, client details and bank details are stored only on the device. They are never sent to this website or anywhere else, and the app is blocked from contacting other websites.
+
+## Install on iPhone
+
+1. Open the app's address in **Safari**.
+2. Tap **Share** → **Add to Home Screen** → **Add**.
+3. Open it from the new **Invoices** icon. From then on it works offline.
+
+Always use the home-screen icon. The home-screen app keeps its own storage, separate from Safari tabs.
+
+## Features
+
+- Business and client details, optional logo
+- Line items, 15 currencies, payment terms with automatic due dates
+- Discount (% or amount), tax after discount, amount already paid, a PAID stamp
+- PDF on A4 or US Letter, shared through the iPhone share sheet (Save to Files, Mail, Messages)
+- Saved invoices marked Open, Overdue or Paid
+- **Passcode lock**: AES-256-GCM encryption with a key derived from your passcode (PBKDF2-SHA-256, 600,000 iterations). Locks after 5 minutes idle or a minute away.
+- Option to never store payment instructions on the device
+- **Encrypted backup and restore** to Files or iCloud Drive
+- One-tap erase
+
+## Back up your invoices
+
+The invoices exist only on your phone. If the phone is lost, broken or reset, they're gone, unless you have a backup. Use **Security on this device → Save backup** now and then and keep the file in iCloud Drive or Files. With the passcode lock on, the backup is encrypted and needs the same passcode to restore.
+
+## Updating
+
+When a new version is published here, the app shows **"A new version of the app is ready"** next time you open it with a connection. Tap **Update now**. Your data stays.
+
+For maintainers: bump `VERSION` in `sw.js` whenever any file changes, or phones keep the old cached copy.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `index.html` | The page |
+| `app.css`, `app.js` | Styles and app logic |
+| `sw.js` | Offline cache (service worker) |
+| `manifest.webmanifest`, `icons/` | Home-screen app name and icons |
+| `vendor/jspdf.umd.min.js` | [jsPDF](https://github.com/parallax/jsPDF) 2.5.1 for PDF creation (MIT licence, see `vendor/jspdf-LICENSE.txt`) |
+
+Hosted with GitHub Pages: Settings → Pages → Deploy from a branch.
