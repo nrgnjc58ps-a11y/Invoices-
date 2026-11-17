@@ -33,6 +33,7 @@ function nextNumber(s) {
 
 /* ---------- state ---------- */
 const newPerf = (artist = "") => ({id: uid(), date: "", venue: "", artist, fee: ""});
+const newExtra = (desc = "") => ({id: uid(), desc, amount: ""});
 function blankState(prev) {
   const today = iso(new Date());
   const terms = prev && prev.terms ? prev.terms : "14";
@@ -44,6 +45,7 @@ function blankState(prev) {
     number: prev ? nextNumber(prev.number) : "INV-0001",
     issueDate: today, terms, dueDate: addDays(today, terms === "custom" ? 14 : +terms),
     items: [newPerf(prev && prev.items && prev.items[0] ? prev.items[0].artist : "")],
+    extras: [],
     paid: "",
     payment: prev ? prev.payment : "", notes: prev ? prev.notes : "Thank you for booking us.",
     accent: prev ? prev.accent : SWATCHES[0]
@@ -62,6 +64,7 @@ function exampleState() {
       {id: uid(), date: addDays(today, -9), venue: "The Lantern Rooms, Bristol", artist: "The Midnight Owls", fee: "450"},
       {id: uid(), date: addDays(today, -2), venue: "The Lantern Rooms, Bristol", artist: "The Midnight Owls", fee: "450"}
     ],
+    extras: [{id: uid(), desc: "Travel: 2 return trips, 40 miles at 45p per mile", amount: "36"}],
     paid: "100",
     payment: "Bank transfer\nAccount name: S Carter\nSort code: 00-00-00\nAccount number: 00000000\nPlease use the invoice number as the reference.",
     notes: "Thank you for booking us.",
@@ -81,6 +84,7 @@ function normalize(s) {
     };
   });
   if (!s.items.length) s.items.push(newPerf());
+  s.extras = (Array.isArray(s.extras) ? s.extras : []).map(x => ({id: x.id || uid(), desc: x.desc || "", amount: x.amount ?? ""}));
   ["discount", "discountType", "taxLabel", "taxRate", "paper"].forEach(k => delete s[k]);
   if (s.biz) delete s.biz.taxId;
   return s;
@@ -144,13 +148,28 @@ function persistAll() {
   return store.set(KEY_CONTACTS, list);
 }
 
+// The invoice title: date(s) of performance, venue, band or artist.
+function gigTitle(s) {
+  const perfs = s.items.filter(it => it.date || it.venue || it.artist);
+  const dates = perfs.map(it => it.date).filter(validDate).sort();
+  const uniq = a => [...new Set(a.map(x => String(x || "").trim()).filter(Boolean))];
+  const venues = uniq(perfs.map(it => it.venue)), artists = uniq(perfs.map(it => it.artist));
+  const date = !dates.length ? "" : dates[0] === dates[dates.length - 1] ? pretty(dates[0]) : pretty(dates[0]) + " to " + pretty(dates[dates.length - 1]);
+  const venue = venues.length > 1 ? "Various venues" : (venues[0] || "");
+  return [date, venue, artists.join(" & ")].filter(Boolean).join(" \u2013 ");
+}
+const fileName = s => ((gigTitle(s) || s.number || "Invoice").replace(/\u2013/g, "-").replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim()) + ".pdf";
+
 function totals(s) {
   const r = x => Math.round((x + Number.EPSILON) * 100) / 100;
   const lines = s.items.map(it => r(num(it.fee)));
-  const total = r(lines.reduce((a, b) => a + b, 0));
+  const xlines = s.extras.map(x => r(num(x.amount)));
+  const fees = r(lines.reduce((a, b) => a + b, 0));
+  const extras = r(xlines.reduce((a, b) => a + b, 0));
+  const total = r(fees + extras);
   const paid = r(num(s.paid));
   const due = r(total - paid);
-  return {lines, total, paid, due, isPaid: total > 0 && due <= 0};
+  return {lines, xlines, fees, extras, total, paid, due, isPaid: total > 0 && due <= 0};
 }
 /* ---------- form ---------- */
 function getPath(o, p) { return p.split(".").reduce((a, k) => a?.[k], o); }
@@ -161,7 +180,7 @@ function fillForm() {
   $("inv-issue").value = state.issueDate || "";
   $("inv-terms").value = state.terms;
   $("inv-due").value = state.dueDate || "";
-  renderLogo(); renderSwatches(); renderItems();
+  renderLogo(); renderSwatches(); renderItems(); renderExtras();
 }
 
 function renderItems() {
@@ -176,6 +195,15 @@ function renderItems() {
       <label class="field"><span>Venue</span><input id="venue-${it.id}" class="i-venue" type="text" value="${esc(it.venue)}" placeholder="Venue name and town"></label>
       <label class="field"><span>Band or artist</span><input id="artist-${it.id}" class="i-artist" type="text" value="${esc(it.artist)}" placeholder="Who performed"></label>
     </div>`).join("");
+}
+function renderExtras() {
+  $("extras").innerHTML = state.extras.map((x, i) => `
+    <div class="extra" data-id="${x.id}">
+      <label class="field x-d"><span>Extra ${i + 1}</span><input id="xdesc-${x.id}" class="x-desc" type="text" value="${esc(x.desc)}" placeholder="What it's for"></label>
+      <label class="field x-a"><span>Amount (£)</span><input id="xamt-${x.id}" class="x-amt" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(x.amount)}" placeholder="0.00"></label>
+      <button type="button" class="icon-btn x-del" aria-label="Remove extra ${i + 1}" title="Remove extra">×</button>
+    </div>`).join("");
+  $("extras-empty").hidden = state.extras.length > 0;
 }
 function updateAmounts() {}
 function renderSwatches() {
@@ -203,6 +231,13 @@ function renderPreview() {
     `<tr><td class="nw">${prettyDay(it.date)}</td><td class="pre">${esc(it.artist) || "—"}</td><td class="pre">${esc(it.venue) || "—"}</td><td class="n">${m(num(it.fee))}</td></tr>`
   ).join("") || `<tr><td class="empty" colspan="4">Add a performance to see it here</td></tr>`;
   const paid = t.paid ? `<dt>Deposit paid</dt><dd>\u2212${m(t.paid)}</dd>` : "";
+  const xs = s.extras.map((x, i) => ({x, a: t.xlines[i]})).filter(({x, a}) => x.desc || a);
+  const extrasTable = xs.length ? `<div class="tablewrap"><table class="p-table">
+      <thead><tr><th>Extras</th><th class="n">Amount</th></tr></thead>
+      <tbody>${xs.map(({x, a}) => `<tr><td class="pre">${esc(x.desc) || "Extra"}</td><td class="n">${m(a)}</td></tr>`).join("")}</tbody>
+    </table></div>` : "";
+  const title = gigTitle(s);
+  $("file-name").textContent = "File name: " + fileName(s);
   const tl = termsLabel(s.terms);
   paper.innerHTML = `
     <div class="p-top">
@@ -218,6 +253,7 @@ function renderPreview() {
         ${t.isPaid ? '<div class="stamp">PAID</div>' : ""}
       </div>
     </div>
+    ${title ? `<div class="p-gig">${esc(title)}</div>` : ""}
     <div class="p-mid">
       <div class="p-billto">
         <div class="p-cap">Bill to</div>
@@ -237,8 +273,10 @@ function renderPreview() {
       <thead><tr><th>Date of performance</th><th>Band / artist</th><th>Venue</th><th class="n">Fee</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
+    ${extrasTable}
     <dl class="p-totals">
-      <dt class="grand">Total fee</dt><dd class="grand">${m(t.total)}</dd>${paid}
+      ${xs.length ? `<dt>Performance fees</dt><dd>${m(t.fees)}</dd><dt>Extras</dt><dd>${m(t.extras)}</dd>` : ""}
+      <dt class="grand">${xs.length ? "Total" : "Total fee"}</dt><dd class="grand">${m(t.total)}</dd>${paid}
       <dt class="balance">Balance due</dt><dd class="balance">${m(Math.max(t.due, 0))}</dd>
     </dl>
     ${(s.payment || s.notes) ? `<div class="p-notes">
@@ -286,6 +324,13 @@ function buildPdf(s) {
   }
 
   y = Math.max(ly, ry) + 14;
+  const title = gigTitle(s);
+  doc.setProperties({title: pdfText(title || s.number), subject: pdfText("Invoice " + s.number), author: pdfText(s.biz.name || "")});
+  if (title) {
+    font("bold", 12.5, ink);
+    const tlines = doc.splitTextToSize(pdfText(title), W - 2 * M);
+    y += 6; doc.text(tlines, M, y + 4); y += tlines.length * 16;
+  }
   doc.setDrawColor(...hair); doc.setLineWidth(.75); doc.line(M, y, W - M, y); y += 22;
 
   // Bill to (left) and meta (right)
@@ -328,11 +373,37 @@ function buildPdf(s) {
     y += rh; doc.setDrawColor(...hair); doc.line(M, y, W - M, y);
   });
 
+  // Extras table
+  const xs = s.extras.map((x, i) => ({x, a: t.xlines[i]})).filter(({x, a}) => x.desc || a);
+  if (xs.length) {
+    y += 16;
+    if (y + 60 > bottom) { doc.addPage(); y = M; }
+    const xhead = () => {
+      doc.setFillColor(...acc); doc.rect(M, y, W - 2 * M, 22, "F");
+      font("bold", 8, [255, 255, 255]);
+      doc.text("EXTRAS", xDate, y + 14.5); doc.text("AMOUNT", xFee, y + 14.5, {align: "right"});
+      y += 22;
+    };
+    xhead();
+    xs.forEach(({x, a}) => {
+      font("normal", 9.5, ink);
+      const d = doc.splitTextToSize(pdfText(x.desc || "Extra"), xFee - 90 - xDate);
+      const rh = d.length * 12.5 + 12;
+      if (y + rh > bottom) { doc.addPage(); y = M; xhead(); font("normal", 9.5, ink); }
+      doc.text(d, xDate, y + 15); doc.text(m(a), xFee, y + 15, {align: "right"});
+      y += rh; doc.setDrawColor(...hair); doc.line(M, y, W - M, y);
+    });
+  }
+
   // Totals
   y += 22;
-  if (y + 80 > bottom) { doc.addPage(); y = M; }
+  if (y + 110 > bottom) { doc.addPage(); y = M; }
   const tx = W - M - 230;
-  font("bold", 10.5, ink); doc.text("Total fee", tx, y); doc.text(m(t.total), xFee, y, {align: "right"}); y += 16;
+  if (xs.length) {
+    [["Performance fees", t.fees], ["Extras", t.extras]].forEach(([k, v]) => { font("normal", 9.5, mute); doc.text(k, tx, y); font("normal", 9.5, ink); doc.text(m(v), xFee, y, {align: "right"}); y += 16; });
+    doc.setDrawColor(...hair); doc.line(tx, y - 8, W - M, y - 8); y += 6;
+  }
+  font("bold", 10.5, ink); doc.text(xs.length ? "Total" : "Total fee", tx, y); doc.text(m(t.total), xFee, y, {align: "right"}); y += 16;
   if (t.paid) { font("normal", 9.5, mute); doc.text("Deposit paid", tx, y); font("normal", 9.5, ink); doc.text("-" + m(t.paid), xFee, y, {align: "right"}); y += 16; }
   doc.setFillColor(...soft); doc.rect(tx - 8, y - 12, W - M - tx + 8, 22, "F");
   font("bold", 11, acc); doc.text("Balance due", tx, y + 3); doc.text(m(Math.max(t.due, 0)), xFee, y + 3, {align: "right"});
@@ -375,12 +446,12 @@ async function downloadPdf() {
   if (!window.jspdf) { toast("The PDF tool didn't load. Close the app and open it again."); return; }
   const btn = $("btn-pdf"); btn.disabled = true;
   try {
-    const name = (state.number + (state.client.name ? " " + state.client.name : "")).replace(/[\\/:*?"<>|]+/g, "").trim() || "invoice";
+    const name = fileName(state);
     const blob = new Blob([buildPdf(state)], {type: "application/pdf"});
-    const r = await offerFile(name + ".pdf", blob, name);
+    const r = await offerFile(name, blob, name.replace(/\.pdf$/, ""));
     if (r === "cancelled") toast("PDF not saved.");
     else if (r === "shared") toast("Done. Find it in the Files app.");
-    else if (r === "downloaded") toast("Downloaded " + name + ".pdf");
+    else if (r === "downloaded") toast("Downloaded " + name);
   } catch (e) {
     toast("Couldn't create the PDF. " + (e && e.message ? e.message : "Try again."));
   } finally { btn.disabled = false; }
@@ -437,6 +508,13 @@ $("editor").addEventListener("submit", e => e.preventDefault());
 $("editor").addEventListener("input", e => {
   const el = e.target;
   if (el.dataset.path) { setPath(state, el.dataset.path, el.value); return changed(); }
+  const xrow = el.closest(".extra");
+  if (xrow) {
+    const x = state.extras.find(v => v.id === xrow.dataset.id); if (!x) return;
+    if (el.classList.contains("x-desc")) x.desc = el.value;
+    if (el.classList.contains("x-amt")) x.amount = el.value;
+    return changed();
+  }
   const row = el.closest(".item");
   if (row) {
     const it = state.items.find(x => x.id === row.dataset.id); if (!it) return;
@@ -472,6 +550,18 @@ $("btn-add-item").addEventListener("click", () => {
   const it = newPerf(last ? last.artist : ""); if (last) it.venue = last.venue;
   state.items.push(it);
   renderItems(); changed(); $("date-" + it.id).focus();
+});
+$("extras").addEventListener("click", e => {
+  const b = e.target.closest(".x-del"); if (!b) return;
+  const id = b.closest(".extra").dataset.id;
+  state.extras = state.extras.filter(x => x.id !== id);
+  renderExtras(); changed();
+});
+$("extra-add").addEventListener("click", e => {
+  const b = e.target.closest("[data-extra]"); if (!b) return;
+  const x = newExtra(b.dataset.extra); state.extras.push(x);
+  renderExtras(); changed();
+  const el = $(b.dataset.extra ? "xamt-" + x.id : "xdesc-" + x.id); if (el) el.focus();
 });
 $("swatches").addEventListener("click", e => {
   const b = e.target.closest(".sw"); if (!b) return;

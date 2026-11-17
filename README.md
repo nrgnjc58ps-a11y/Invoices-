@@ -18,6 +18,8 @@ Always use the home-screen icon. The home-screen app keeps its own storage, sepa
 - **Contacts**: save a client (venue, promoter or agent) once, then pick them next time. A contact also remembers their usual venue.
 - Optional contact person, printed as "FAO"
 - One line per performance: **date of performance, venue, band or artist, fee**. Add several gigs to one invoice.
+- **Extras** on top of the fee: travel, PA hire, accommodation, parking or anything else
+- **Automatic title** from the date of performance, venue and band or artist. It is printed on the invoice and used as the PDF file name, e.g. "14 Nov 2026 - The Lantern Rooms, Bristol - The Midnight Owls.pdf"
 - Amounts in pounds sterling (£), A4 PDF
 - Payment due on receipt, within 7, 14 or 30 days, or on a date you pick
 - Deposit already paid, balance due, and a PAID stamp once it's settled

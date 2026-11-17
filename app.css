@@ -182,3 +182,13 @@ body.privacy-blur main,body.privacy-blur .drawer{filter:blur(18px)}
 .c-name{font-weight:600}
 .pdf-how{margin:-4px 0 10px}
 @media (max-width:600px){.saved-list .s-main{flex-basis:100%}}
+
+/* Extras */
+.extras{display:flex;flex-direction:column;gap:10px}
+.extras:empty{display:none}
+.extra{display:grid;grid-template-columns:minmax(0,1fr) 110px 34px;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--field)}
+.extra input{background:var(--surface)}
+@media (max-width:420px){.extra{grid-template-columns:minmax(0,1fr) 34px}.extra .x-d{grid-column:1 / -1}}
+/* Invoice title */
+.p-gig{font-weight:700;font-size:1.15em;line-height:1.3;text-wrap:balance;margin-bottom:-8px}
+.file-name{margin:0 0 4px;font-family:var(--f-num);font-size:12px;overflow-wrap:anywhere}

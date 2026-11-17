@@ -105,6 +105,19 @@
     </section>
 
     <section class="section">
+      <h2>Extras</h2>
+      <p class="hint" id="extras-empty">Travel, PA hire, accommodation, parking or anything else on top of the fee. Leave empty if there are none.</p>
+      <div class="extras" id="extras"></div>
+      <div class="btns" id="extra-add">
+        <button class="btn" type="button" data-extra="Travel">+ Travel</button>
+        <button class="btn" type="button" data-extra="PA hire">+ PA hire</button>
+        <button class="btn" type="button" data-extra="Accommodation">+ Accommodation</button>
+        <button class="btn" type="button" data-extra="Parking">+ Parking</button>
+        <button class="btn" type="button" data-extra="">+ Other</button>
+      </div>
+    </section>
+
+    <section class="section">
       <h2>Deposit</h2>
       <label class="field"><span>Deposit already paid (£)</span><input id="adj-paid" type="number" step="0.01" min="0" inputmode="decimal" data-path="paid" placeholder="0.00"></label>
       <p class="hint">Leave blank if there was no deposit. When payments cover the full fee, the invoice is stamped Paid.</p>
@@ -163,6 +176,7 @@
 
   <aside class="preview" aria-label="Invoice preview">
     <div class="preview-head"><span class="lbl">Preview</span><span class="hint" id="pdf-note"></span></div>
+    <p class="hint file-name" id="file-name"></p>
     <p class="hint pdf-how">Create PDF opens the iPhone share sheet: choose <strong>Save to Files</strong>. Invoices aren't kept in the app.</p>
     <div class="paper" id="paper"></div>
   </aside>
