@@ -60,7 +60,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 @media (max-width:420px){.row,.row.three{grid-template-columns:1fr}}
 .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .field>span,.lbl{font-size:12.5px;color:var(--muted);font-weight:500}
-input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{
+input[type=text],input[type=search],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{
   width:100%;background:var(--field);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
 textarea{resize:vertical;min-height:38px}
 input[type=number]{font-family:var(--f-num);font-size:13px}
@@ -174,3 +174,11 @@ body.privacy-blur main,body.privacy-blur .drawer{filter:blur(18px)}
 /* Performance cards */
 .item-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .p-table td.nw{white-space:nowrap}
+
+/* Contacts */
+.sec-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.drawer{display:flex;flex-direction:column;gap:10px}
+.drawer h2{margin:0}
+.c-name{font-weight:600}
+.pdf-how{margin:-4px 0 10px}
+@media (max-width:600px){.saved-list .s-main{flex-basis:100%}}

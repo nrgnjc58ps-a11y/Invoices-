@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 const SWATCHES = ["#136F63","#1F3A93","#8A2B4A","#B05A16","#3D4A5C","#2B2B2B"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const KEY_DRAFT = "tally.draft.v1", KEY_SAVED = "tally.saved.v1", KEY_VAULT = "tally.vault.v1", KEY_PREFS = "tally.prefs.v1";
+const KEY_DRAFT = "tally.draft.v1", KEY_SAVED = "tally.saved.v1", KEY_VAULT = "tally.vault.v1", KEY_PREFS = "tally.prefs.v1", KEY_CONTACTS = "tally.contacts.v1";
 const ITER = 600000, IDLE_MS = 5 * 60 * 1000, AWAY_MS = 60 * 1000;
 
 /* ---------- helpers ---------- */
@@ -40,7 +40,7 @@ function blankState(prev) {
     example: false, currency: "GBP",
     biz: prev ? {...prev.biz} : {name: "", address: "", email: "", phone: ""},
     logo: prev ? prev.logo : null,
-    client: {name: "", address: "", email: ""},
+    client: {name: "", contact: "", address: "", email: "", phone: ""},
     number: prev ? nextNumber(prev.number) : "INV-0001",
     issueDate: today, terms, dueDate: addDays(today, terms === "custom" ? 14 : +terms),
     items: [newPerf(prev && prev.items && prev.items[0] ? prev.items[0].artist : "")],
@@ -55,7 +55,7 @@ function exampleState() {
     example: true, currency: "GBP",
     biz: {name: "Sam Carter Music", address: "12 Example Road\nBristol", email: "bookings@samcarter.example", phone: "07700 900123"},
     logo: null,
-    client: {name: "The Lantern Rooms", address: "Old Market Street\nBristol", email: "events@lanternrooms.example"},
+    client: {name: "The Lantern Rooms", contact: "Jo Bennett", address: "Old Market Street\nBristol", email: "events@lanternrooms.example", phone: "0117 496 0123"},
     number: "INV-0001",
     issueDate: today, terms: "14", dueDate: addDays(today, 14),
     items: [
@@ -72,6 +72,7 @@ function exampleState() {
 function normalize(s) {
   if (!s || typeof s !== "object") return s;
   s.currency = "GBP";
+  s.client = {name: "", contact: "", address: "", email: "", phone: "", ...(s.client || {})};
   s.items = (Array.isArray(s.items) ? s.items : []).map(it => {
     const q = it.qty === undefined || it.qty === "" ? 1 : num(it.qty);
     return {
@@ -84,12 +85,29 @@ function normalize(s) {
   if (s.biz) delete s.biz.taxId;
   return s;
 }
-const normalizeList = list => (Array.isArray(list) ? list : []).filter(e => e && e.state).map(e => ({...e, state: normalize(e.state)}));
+/* Contacts: clients you bill again. Old saved invoices are turned into contacts, then dropped. */
+const sortContacts = l => l.sort((a, b) => a.name.localeCompare(b.name, "en-GB", {sensitivity: "base"}));
+const sameName = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+function cleanContact(c) {
+  return {id: c.id || uid(), name: String(c.name).trim(), contact: c.contact || "", address: c.address || "", email: c.email || "", phone: c.phone || "", venue: c.venue || ""};
+}
+function loadContacts(list, oldInvoices) {
+  const out = (Array.isArray(list) ? list : []).filter(c => c && c.name).map(cleanContact);
+  (Array.isArray(oldInvoices) ? oldInvoices : []).forEach(e => {
+    const c = e && e.state && e.state.client;
+    if (c && c.name && !out.some(x => sameName(x.name, c.name))) {
+      const venue = ((e.state.items || []).find(it => it.venue) || {}).venue || "";
+      out.push(cleanContact({...c, venue}));
+    }
+  });
+  return sortContacts(out);
+}
 let prefs = Object.assign({noPayment: false, fails: 0, until: 0}, store.get(KEY_PREFS, {}));
 let lockEnabled = !!store.get(KEY_VAULT, null);
 let cryptoKey = null, vaultSalt = null;
 let state = lockEnabled ? blankState(null) : (normalize(store.get(KEY_DRAFT, null)) || exampleState());
-let saved = lockEnabled ? [] : normalizeList(store.get(KEY_SAVED, []));
+const oldInvoices = lockEnabled ? null : store.get(KEY_SAVED, null);
+let contacts = lockEnabled ? [] : loadContacts(store.get(KEY_CONTACTS, []), oldInvoices);
 
 /* ---------- encryption (AES-GCM 256, key from passcode via PBKDF2-SHA256) ---------- */
 const hasCrypto = !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
@@ -114,16 +132,16 @@ const savePrefs = () => store.set(KEY_PREFS, prefs);
 let writeChain = Promise.resolve();
 function persistAll() {
   if (lockEnabled && !cryptoKey) return false; // locked: never write plain text
-  const draft = scrub(state), list = saved.map(e => ({...e, state: scrub(e.state)}));
+  const draft = scrub(state), list = contacts.slice();
   if (cryptoKey) {
     const key = cryptoKey, salt = vaultSalt;
-    writeChain = writeChain.then(() => seal(key, salt, {draft, saved: list}))
+    writeChain = writeChain.then(() => seal(key, salt, {draft, contacts: list}))
       .then(v => { if (!store.set(KEY_VAULT, v)) toast("Couldn't save. This browser is blocking storage."); })
       .catch(() => toast("Couldn't encrypt your invoices. Try again."));
     return true;
   }
   store.set(KEY_DRAFT, draft);
-  return store.set(KEY_SAVED, list);
+  return store.set(KEY_CONTACTS, list);
 }
 
 function totals(s) {
@@ -134,13 +152,6 @@ function totals(s) {
   const due = r(total - paid);
   return {lines, total, paid, due, isPaid: total > 0 && due <= 0};
 }
-function status(s) {
-  const t = totals(s);
-  if (t.isPaid) return "paid";
-  if (validDate(s.dueDate) && s.dueDate < iso(new Date())) return "late";
-  return "open";
-}
-
 /* ---------- form ---------- */
 function getPath(o, p) { return p.split(".").reduce((a, k) => a?.[k], o); }
 function setPath(o, p, v) { const ks = p.split("."); const last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; }
@@ -211,6 +222,7 @@ function renderPreview() {
       <div class="p-billto">
         <div class="p-cap">Bill to</div>
         <div style="font-weight:600">${esc(s.client.name) || '<span class="p-muted">Client name</span>'}</div>
+        ${s.client.contact ? `<div>FAO ${esc(s.client.contact)}</div>` : ""}
         <div class="p-muted pre">${esc(s.client.address)}</div>
         <div class="p-muted">${esc(s.client.email)}</div>
       </div>
@@ -280,6 +292,7 @@ function buildPdf(s) {
   font("bold", 8, mute); doc.text("BILL TO", M, y);
   let by = y + 15;
   font("bold", 11, ink); doc.text(pdfText(s.client.name || "Client name"), M, by); by += 15;
+  if (s.client.contact) { font("normal", 9.5, ink); doc.text(pdfText("FAO " + s.client.contact), M, by); by += 13; }
   font("normal", 9.5, mute);
   [...String(s.client.address || "").split("\n"), s.client.email].filter(Boolean)
     .forEach(l => doc.splitTextToSize(pdfText(l), 250).forEach(w => { doc.text(w, M, by); by += 13; }));
@@ -366,35 +379,50 @@ async function downloadPdf() {
     const blob = new Blob([buildPdf(state)], {type: "application/pdf"});
     const r = await offerFile(name + ".pdf", blob, name);
     if (r === "cancelled") toast("PDF not saved.");
+    else if (r === "shared") toast("Done. Find it in the Files app.");
     else if (r === "downloaded") toast("Downloaded " + name + ".pdf");
   } catch (e) {
     toast("Couldn't create the PDF. " + (e && e.message ? e.message : "Try again."));
   } finally { btn.disabled = false; }
 }
 
-/* ---------- saved invoices ---------- */
-function renderSaved() {
-  $("saved-count").textContent = saved.length;
-  $("saved-empty").hidden = saved.length > 0;
-  $("saved-list").innerHTML = saved.map((e, i) => {
-    const t = totals(e.state), st = status(e.state);
-    return `<li data-i="${i}">
-      <div class="s-main"><span class="s-num">${esc(e.state.number)}</span><span class="s-sub">${esc(e.state.client.name || "No client")} · issued ${pretty(e.state.issueDate)}</span></div>
-      <span class="pill ${st}">${st === "late" ? "Overdue" : st === "paid" ? "Paid" : "Open"}</span>
-      <span class="s-amt">${esc(money(t.total))}</span>
-      <button type="button" class="btn s-open">Open</button>
-      <button type="button" class="btn ghost danger s-del">Delete</button>
-    </li>`;
-  }).join("");
+/* ---------- contacts ---------- */
+let contactQuery = "";
+const oneLine = s => String(s || "").split("\n").map(x => x.trim()).filter(Boolean).join(", ");
+function renderContacts() {
+  $("contacts-count").textContent = contacts.length;
+  const q = contactQuery.trim().toLowerCase();
+  const list = contacts.filter(c => !q || [c.name, c.contact, c.address, c.email, c.venue].join(" ").toLowerCase().includes(q));
+  const empty = $("contacts-empty");
+  empty.textContent = !contacts.length ? "No contacts yet. Fill in Bill to, then tap Save to contacts." : "No contacts match that search.";
+  empty.hidden = list.length > 0;
+  $("contacts-list").innerHTML = list.map(c => `<li data-id="${c.id}">
+      <div class="s-main"><span class="c-name">${esc(c.name)}</span><span class="s-sub">${esc([c.contact, oneLine(c.address), c.venue ? "Usual venue: " + c.venue : ""].filter(Boolean).join(" · "))}</span></div>
+      <button type="button" class="btn primary c-use">Use</button>
+      <button type="button" class="btn ghost danger c-del">Delete</button>
+    </li>`).join("");
 }
-function saveCurrent() {
-  const copy = JSON.parse(JSON.stringify(state)); copy.example = false;
-  const i = saved.findIndex(e => e.state.number === copy.number);
-  const entry = {savedAt: Date.now(), state: copy};
-  if (i >= 0) saved[i] = entry; else saved.unshift(entry);
-  const ok = persistAll();
-  renderSaved();
-  toast(ok ? (i >= 0 ? "Updated " : "Saved ") + copy.number : "Couldn't save. This browser is blocking storage.");
+function openContacts() {
+  $("drawer").hidden = false; $("btn-contacts").setAttribute("aria-expanded", "true");
+  window.scrollTo({top: 0}); renderContacts();
+}
+function closeContacts() { $("drawer").hidden = true; $("btn-contacts").setAttribute("aria-expanded", "false"); }
+function useContact(c) {
+  state.client = {name: c.name, contact: c.contact, address: c.address, email: c.email, phone: c.phone};
+  if (c.venue) state.items.forEach(it => { if (!it.venue) it.venue = c.venue; });
+  fillForm(); changed(); closeContacts();
+  toast("Billing " + c.name);
+}
+function saveContact() {
+  const c = state.client;
+  if (!c.name || !c.name.trim()) { toast("Add the client's name first."); return; }
+  const i = contacts.findIndex(x => sameName(x.name, c.name));
+  const venue = (state.items.find(it => it.venue) || {}).venue || (i >= 0 ? contacts[i].venue : "");
+  const rec = cleanContact({...c, id: i >= 0 ? contacts[i].id : undefined, venue});
+  if (i >= 0) contacts[i] = rec; else contacts.push(rec);
+  sortContacts(contacts);
+  const ok = persistAll(); renderContacts();
+  toast(!ok ? "Couldn't save. This browser is blocking storage." : (i >= 0 ? "Updated " : "Saved ") + rec.name + " in contacts.");
 }
 
 /* ---------- events ---------- */
@@ -474,32 +502,25 @@ $("logo-remove").addEventListener("click", () => { state.logo = null; renderLogo
 $("btn-new").addEventListener("click", () => {
   const prev = state.example ? null : state;
   state = blankState(prev);
-  if (prev && saved.some(e => e.state.number === state.number)) {
-    let n = state.number; while (saved.some(e => e.state.number === n)) n = nextNumber(n); state.number = n;
-  }
   $("example-banner").hidden = true; fillForm(); renderPreview(); persistAll();
-  toast("Started " + state.number + ". Your business details carried over.");
+  toast("Started " + state.number + ". Your details carried over.");
 });
 $("btn-clear-example").addEventListener("click", () => {
   state = blankState(null); $("example-banner").hidden = true; fillForm(); renderPreview(); persistAll();
 });
-$("btn-save").addEventListener("click", saveCurrent);
 $("btn-pdf").addEventListener("click", downloadPdf);
-$("btn-saved").addEventListener("click", () => {
-  const open = $("drawer").hidden; $("drawer").hidden = !open; $("btn-saved").setAttribute("aria-expanded", open);
-});
-$("saved-list").addEventListener("click", e => {
+$("btn-contacts").addEventListener("click", () => { if ($("drawer").hidden) openContacts(); else closeContacts(); });
+$("btn-pick-contact").addEventListener("click", () => { openContacts(); $("contacts-search").focus(); });
+$("contacts-close").addEventListener("click", closeContacts);
+$("btn-save-contact").addEventListener("click", saveContact);
+$("contacts-search").addEventListener("input", e => { contactQuery = e.target.value; renderContacts(); });
+$("contacts-list").addEventListener("click", e => {
   const li = e.target.closest("li"); if (!li) return;
-  const i = +li.dataset.i, entry = saved[i]; if (!entry) return;
-  if (e.target.closest(".s-open")) {
-    state = JSON.parse(JSON.stringify(entry.state)); state.example = false;
-    $("example-banner").hidden = true; fillForm(); renderPreview(); persistAll();
-    toast("Opened " + state.number); window.scrollTo({top: 0});
-  } else if (e.target.closest(".s-del")) {
-    const b = e.target.closest(".s-del");
-    if (b.dataset.armed) { saved.splice(i, 1); persistAll(); renderSaved(); toast("Deleted " + entry.state.number); }
-    else { b.dataset.armed = "1"; b.textContent = "Confirm delete"; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Delete"; } }, 4000); }
-  }
+  const c = contacts.find(x => x.id === li.dataset.id); if (!c) return;
+  if (e.target.closest(".c-use")) useContact(c);
+  else if (e.target.closest(".c-del")) armed(e.target.closest(".c-del"), "Confirm delete", () => {
+    contacts = contacts.filter(x => x.id !== c.id); persistAll(); renderContacts(); toast("Deleted " + c.name);
+  });
 });
 
 let toastTimer;
@@ -514,8 +535,8 @@ function renderSecurity() {
   const st = $("sec-status");
   st.className = "status" + (on ? " on" : "");
   st.textContent = !hasCrypto ? "Passcode lock isn't available in this view because the browser's encryption feature is missing."
-    : on ? "Passcode lock is on. Your invoices are encrypted on this device. The app locks after 5 minutes without use, or when you've been away from it for over a minute."
-    : "Passcode lock is off. Anyone who can open this page on this device can read your draft and saved invoices.";
+    : on ? "Passcode lock is on. Your details and contacts are encrypted on this device. The app locks after 5 minutes without use, or when you've been away from it for over a minute."
+    : "Passcode lock is off. Anyone who can open this page on this device can read your details, bank details and contacts.";
   $("sec-setup").hidden = !hasCrypto;
   $("sec-enable").hidden = on || !hasCrypto;
   ["sec-change", "sec-locknow", "sec-disable", "btn-lock"].forEach(id => { $(id).hidden = !on; });
@@ -534,7 +555,7 @@ async function setPass(pass) {
   const key = await deriveKey(pass, salt, ITER);
   cryptoKey = key; vaultSalt = salt; lockEnabled = true;
   persistAll(); await writeChain;
-  store.del(KEY_DRAFT); store.del(KEY_SAVED);
+  store.del(KEY_DRAFT); store.del(KEY_SAVED); store.del(KEY_CONTACTS);
   $("sec-new").value = ""; $("sec-confirm").value = "";
   renderSecurity();
 }
@@ -546,20 +567,19 @@ function armed(btn, label, fn) {
 async function lock() {
   if (!lockEnabled || !cryptoKey) return;
   clearTimeout(saveTimer); persistAll(); await writeChain;
-  cryptoKey = null; state = blankState(null); saved = [];
-  fillForm(); renderPreview(); renderSaved();
-  $("drawer").hidden = true; $("btn-saved").setAttribute("aria-expanded", "false");
+  cryptoKey = null; state = blankState(null); contacts = [];
+  fillForm(); renderPreview(); renderContacts(); closeContacts();
   document.body.classList.add("is-locked"); $("lock").hidden = false;
   $("lock-pass").value = ""; $("lock-err").textContent = "";
 }
 async function eraseAll() {
   clearTimeout(saveTimer); await writeChain;
-  [KEY_VAULT, KEY_DRAFT, KEY_SAVED, KEY_PREFS].forEach(k => store.del(k));
+  [KEY_VAULT, KEY_DRAFT, KEY_SAVED, KEY_CONTACTS, KEY_PREFS].forEach(k => store.del(k));
   prefs = {noPayment: false, fails: 0, until: 0};
   lockEnabled = false; cryptoKey = null; vaultSalt = null;
-  state = blankState(null); saved = [];
+  state = blankState(null); contacts = [];
   document.body.classList.remove("is-locked"); $("lock").hidden = true; $("example-banner").hidden = true;
-  fillForm(); renderPreview(); renderSaved(); renderSecurity();
+  fillForm(); renderPreview(); renderContacts(); renderSecurity();
   toast("Everything on this device has been erased.");
 }
 
@@ -602,10 +622,11 @@ $("lock-form").addEventListener("submit", async e => {
     const key = await deriveKey(pass, salt, v.iter || ITER);
     const data = await openVault(key, v);
     cryptoKey = key; vaultSalt = salt; prefs.fails = 0; prefs.until = 0; savePrefs();
-    state = normalize(data.draft) || blankState(null); saved = normalizeList(data.saved);
+    state = normalize(data.draft) || blankState(null); contacts = loadContacts(data.contacts, data.saved);
+    if (data.saved) persistAll(); // re-save without old invoices
     document.body.classList.remove("is-locked"); $("lock").hidden = true; $("lock-pass").value = "";
     $("example-banner").hidden = !state.example;
-    fillForm(); renderPreview(); renderSaved(); renderSecurity(); lastActive = Date.now();
+    fillForm(); renderPreview(); renderContacts(); renderSecurity(); lastActive = Date.now();
   } catch {
     prefs.fails = (prefs.fails || 0) + 1;
     if (prefs.fails >= 5) prefs.until = Date.now() + Math.min(30000 * 2 ** (prefs.fails - 5), 15 * 60000);
@@ -637,7 +658,7 @@ $("bk-export").addEventListener("click", async () => {
     payload = {app: "tally-invoices", kind: "encrypted", exportedAt: new Date().toISOString(), vault: v};
   } else {
     persistAll();
-    payload = {app: "tally-invoices", kind: "plain", exportedAt: new Date().toISOString(), data: {draft: scrub(state), saved: saved.map(e => ({...e, state: scrub(e.state)}))}};
+    payload = {app: "tally-invoices", kind: "plain", exportedAt: new Date().toISOString(), data: {draft: scrub(state), contacts}};
   }
   const blob = new Blob([JSON.stringify(payload)], {type: "application/json"});
   const r = await offerFile("tally-backup-" + today() + ".json", blob, "Invoice backup");
@@ -652,12 +673,12 @@ $("bk-file").addEventListener("change", e => {
   reader.onload = () => {
     let b;
     try { b = JSON.parse(reader.result); } catch { b = null; }
-    if (!b || b.app !== "tally-invoices" || (b.kind === "encrypted" ? !(b.vault && b.vault.ct) : !(b.data && Array.isArray(b.data.saved)))) {
+    if (!b || b.app !== "tally-invoices" || (b.kind === "encrypted" ? !(b.vault && b.vault.ct) : !(b.data && (Array.isArray(b.data.contacts) || Array.isArray(b.data.saved))))) {
       toast("That file isn't a Tally Invoices backup."); return;
     }
     pendingRestore = b;
     const when = b.exportedAt ? pretty(iso(new Date(b.exportedAt))) : "an unknown date";
-    $("bk-msg").textContent = "Restore the backup from " + when + "? This replaces every invoice and detail currently on this phone." + (b.kind === "encrypted" ? " You'll need the passcode that was in use when the backup was made." : "");
+    $("bk-msg").textContent = "Restore the backup from " + when + "? This replaces your details and contacts currently on this phone." + (b.kind === "encrypted" ? " You'll need the passcode that was in use when the backup was made." : "");
     $("bk-confirm").hidden = false;
   };
   reader.readAsText(f);
@@ -671,14 +692,14 @@ $("bk-yes").addEventListener("click", async () => {
   cryptoKey = null; vaultSalt = null;
   if (b.kind === "encrypted") {
     store.set(KEY_VAULT, b.vault); lockEnabled = true;
-    state = blankState(null); saved = [];
-    fillForm(); renderPreview(); renderSaved(); renderSecurity();
+    state = blankState(null); contacts = [];
+    fillForm(); renderPreview(); renderContacts(); renderSecurity();
     document.body.classList.add("is-locked"); $("lock").hidden = false;
     $("lock-err").textContent = "Backup restored. Enter the passcode it was made with.";
   } else {
     lockEnabled = false;
-    state = normalize(b.data.draft) || blankState(null); state.example = false; saved = normalizeList(b.data.saved);
-    persistAll(); fillForm(); renderPreview(); renderSaved(); renderSecurity();
+    state = normalize(b.data.draft) || blankState(null); state.example = false; contacts = loadContacts(b.data.contacts, b.data.saved);
+    persistAll(); fillForm(); renderPreview(); renderContacts(); renderSecurity();
     toast("Backup restored.");
   }
 });
@@ -707,6 +728,7 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 
 /* ---------- boot ---------- */
 $("example-banner").hidden = !state.example;
-fillForm(); renderPreview(); renderSaved(); renderSecurity();
+fillForm(); renderPreview(); renderContacts(); renderSecurity();
+if (!lockEnabled && oldInvoices) { persistAll(); store.del(KEY_SAVED); } // invoices are no longer kept
 if (lockEnabled) { document.body.classList.add("is-locked"); $("lock").hidden = false; }
 })();

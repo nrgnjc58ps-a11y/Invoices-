@@ -1,6 +1,6 @@
 // Offline cache for Tally Invoices. Bump VERSION whenever any file changes,
 // so phones fetch the new files and show the "new version" banner.
-const VERSION = "tally-v2";
+const VERSION = "tally-v3";
 const FILES = [
   "./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",
   "./vendor/jspdf.umd.min.js",
