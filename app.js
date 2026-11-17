@@ -33,7 +33,16 @@ function nextNumber(s) {
 
 /* ---------- state ---------- */
 const newPerf = (artist = "") => ({id: uid(), date: "", venue: "", artist, fee: ""});
-const newExtra = (desc = "") => ({id: uid(), desc, amount: ""});
+const newExtra = (desc = "") => ({id: uid(), desc, amount: "", perf: ""});
+const filledPerfs = s => s.items.filter(it => it.date || it.venue || it.artist || num(it.fee));
+// Short label for a performance, used in the app and on the PDF.
+function perfLabel(s, id, short) {
+  const i = s.items.findIndex(it => it.id === id);
+  if (i < 0) return "All performances";
+  const it = s.items[i];
+  if (short) return validDate(it.date) ? prettyDay(it.date) : "Performance " + (i + 1);
+  return [validDate(it.date) ? prettyDay(it.date) : "Performance " + (i + 1), it.venue].filter(Boolean).join(", ");
+}
 function blankState(prev) {
   const today = iso(new Date());
   const terms = prev && prev.terms ? prev.terms : "14";
@@ -64,7 +73,7 @@ function exampleState() {
       {id: uid(), date: addDays(today, -9), venue: "The Lantern Rooms, Bristol", artist: "The Midnight Owls", fee: "450"},
       {id: uid(), date: addDays(today, -2), venue: "The Lantern Rooms, Bristol", artist: "The Midnight Owls", fee: "450"}
     ],
-    extras: [{id: uid(), desc: "Travel: 2 return trips, 40 miles at 45p per mile", amount: "36"}],
+    extras: [{id: uid(), desc: "Travel: 2 return trips, 40 miles at 45p per mile", amount: "36", perf: ""}],
     paid: "100",
     payment: "Bank transfer\nAccount name: S Carter\nSort code: 00-00-00\nAccount number: 00000000\nPlease use the invoice number as the reference.",
     notes: "Thank you for booking us.",
@@ -84,7 +93,7 @@ function normalize(s) {
     };
   });
   if (!s.items.length) s.items.push(newPerf());
-  s.extras = (Array.isArray(s.extras) ? s.extras : []).map(x => ({id: x.id || uid(), desc: x.desc || "", amount: x.amount ?? ""}));
+  s.extras = (Array.isArray(s.extras) ? s.extras : []).map(x => ({id: x.id || uid(), desc: x.desc || "", amount: x.amount ?? "", perf: x.perf || ""}));
   ["discount", "discountType", "taxLabel", "taxRate", "paper"].forEach(k => delete s[k]);
   if (s.biz) delete s.biz.taxId;
   return s;
@@ -198,12 +207,29 @@ function renderItems() {
 }
 function renderExtras() {
   $("extras").innerHTML = state.extras.map((x, i) => `
-    <div class="extra" data-id="${x.id}">
+    <div class="extra${state.items.length > 1 ? "" : " single"}" data-id="${x.id}">
       <label class="field x-d"><span>Extra ${i + 1}</span><input id="xdesc-${x.id}" class="x-desc" type="text" value="${esc(x.desc)}" placeholder="What it's for"></label>
+      <label class="field x-f"${state.items.length > 1 ? "" : " hidden"}><span>For</span><select id="xperf-${x.id}" class="x-perf">${perfOptions(x.perf)}</select></label>
       <label class="field x-a"><span>Amount (£)</span><input id="xamt-${x.id}" class="x-amt" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(x.amount)}" placeholder="0.00"></label>
       <button type="button" class="icon-btn x-del" aria-label="Remove extra ${i + 1}" title="Remove extra">×</button>
     </div>`).join("");
   $("extras-empty").hidden = state.extras.length > 0;
+}
+function perfOptions(sel) {
+  return `<option value="">All performances</option>` + state.items.map(it =>
+    `<option value="${it.id}"${it.id === sel ? " selected" : ""}>${esc(perfLabel(state, it.id))}</option>`).join("");
+}
+// Keep the "For" lists in step with the performances without disturbing typing.
+function refreshExtraLinks() {
+  const ids = new Set(state.items.map(it => it.id));
+  state.extras.forEach(x => { if (x.perf && !ids.has(x.perf)) x.perf = ""; });
+  document.querySelectorAll(".extra").forEach(row => {
+    const x = state.extras.find(v => v.id === row.dataset.id); if (!x) return;
+    const sel = row.querySelector(".x-perf");
+    if (document.activeElement !== sel) sel.innerHTML = perfOptions(x.perf);
+    row.querySelector(".x-f").hidden = state.items.length < 2;
+    row.classList.toggle("single", state.items.length < 2);
+  });
 }
 function updateAmounts() {}
 function renderSwatches() {
@@ -232,9 +258,10 @@ function renderPreview() {
   ).join("") || `<tr><td class="empty" colspan="4">Add a performance to see it here</td></tr>`;
   const paid = t.paid ? `<dt>Deposit paid</dt><dd>\u2212${m(t.paid)}</dd>` : "";
   const xs = s.extras.map((x, i) => ({x, a: t.xlines[i]})).filter(({x, a}) => x.desc || a);
+  const showFor = filledPerfs(s).length > 1 && xs.some(({x}) => x.perf);
   const extrasTable = xs.length ? `<div class="tablewrap"><table class="p-table">
-      <thead><tr><th>Extras</th><th class="n">Amount</th></tr></thead>
-      <tbody>${xs.map(({x, a}) => `<tr><td class="pre">${esc(x.desc) || "Extra"}</td><td class="n">${m(a)}</td></tr>`).join("")}</tbody>
+      <thead><tr>${showFor ? "<th>Performance</th>" : ""}<th>Extras</th><th class="n">Amount</th></tr></thead>
+      <tbody>${xs.map(({x, a}) => `<tr>${showFor ? `<td class="nw">${esc(perfLabel(s, x.perf, true))}</td>` : ""}<td class="pre">${esc(x.desc) || "Extra"}</td><td class="n">${m(a)}</td></tr>`).join("")}</tbody>
     </table></div>` : "";
   const title = gigTitle(s);
   $("file-name").textContent = "File name: " + fileName(s);
@@ -375,22 +402,26 @@ function buildPdf(s) {
 
   // Extras table
   const xs = s.extras.map((x, i) => ({x, a: t.xlines[i]})).filter(({x, a}) => x.desc || a);
+  const showFor = filledPerfs(s).length > 1 && xs.some(({x}) => x.perf);
+  const xDesc = showFor ? xArtist : xDate;
   if (xs.length) {
     y += 16;
     if (y + 60 > bottom) { doc.addPage(); y = M; }
     const xhead = () => {
       doc.setFillColor(...acc); doc.rect(M, y, W - 2 * M, 22, "F");
       font("bold", 8, [255, 255, 255]);
-      doc.text("EXTRAS", xDate, y + 14.5); doc.text("AMOUNT", xFee, y + 14.5, {align: "right"});
+      if (showFor) doc.text("PERFORMANCE", xDate, y + 14.5);
+      doc.text("EXTRAS", xDesc, y + 14.5); doc.text("AMOUNT", xFee, y + 14.5, {align: "right"});
       y += 22;
     };
     xhead();
     xs.forEach(({x, a}) => {
       font("normal", 9.5, ink);
-      const d = doc.splitTextToSize(pdfText(x.desc || "Extra"), xFee - 90 - xDate);
+      const d = doc.splitTextToSize(pdfText(x.desc || "Extra"), xFee - 90 - xDesc);
       const rh = d.length * 12.5 + 12;
       if (y + rh > bottom) { doc.addPage(); y = M; xhead(); font("normal", 9.5, ink); }
-      doc.text(d, xDate, y + 15); doc.text(m(a), xFee, y + 15, {align: "right"});
+      if (showFor) doc.text(pdfText(perfLabel(s, x.perf, true)), xDate, y + 15);
+      doc.text(d, xDesc, y + 15); doc.text(m(a), xFee, y + 15, {align: "right"});
       y += rh; doc.setDrawColor(...hair); doc.line(M, y, W - M, y);
     });
   }
@@ -513,6 +544,7 @@ $("editor").addEventListener("input", e => {
     const x = state.extras.find(v => v.id === xrow.dataset.id); if (!x) return;
     if (el.classList.contains("x-desc")) x.desc = el.value;
     if (el.classList.contains("x-amt")) x.amount = el.value;
+    if (el.classList.contains("x-perf")) x.perf = el.value;
     return changed();
   }
   const row = el.closest(".item");
@@ -522,6 +554,7 @@ $("editor").addEventListener("input", e => {
     if (el.classList.contains("i-venue")) it.venue = el.value;
     if (el.classList.contains("i-artist")) it.artist = el.value;
     if (el.classList.contains("i-fee")) it.fee = el.value;
+    if (el.classList.contains("i-date") || el.classList.contains("i-venue")) refreshExtraLinks();
     return changed();
   }
   if (el.id === "accent-custom") { state.accent = el.value; document.querySelectorAll(".sw").forEach(b => b.setAttribute("aria-pressed", "false")); return changed(); }
@@ -543,13 +576,13 @@ $("items").addEventListener("click", e => {
   const id = b.closest(".item").dataset.id;
   state.items = state.items.filter(x => x.id !== id);
   if (!state.items.length) state.items.push(newPerf());
-  renderItems(); changed();
+  renderItems(); refreshExtraLinks(); changed();
 });
 $("btn-add-item").addEventListener("click", () => {
   const last = state.items[state.items.length - 1];
   const it = newPerf(last ? last.artist : ""); if (last) it.venue = last.venue;
   state.items.push(it);
-  renderItems(); changed(); $("date-" + it.id).focus();
+  renderItems(); refreshExtraLinks(); changed(); $("date-" + it.id).focus();
 });
 $("extras").addEventListener("click", e => {
   const b = e.target.closest(".x-del"); if (!b) return;
@@ -728,8 +761,11 @@ $("lock-form").addEventListener("submit", async e => {
 let lastActive = Date.now(), hiddenAt = 0;
 ["pointerdown", "keydown", "input", "scroll", "touchstart"].forEach(ev => addEventListener(ev, () => { lastActive = Date.now(); }, {passive: true, capture: true}));
 setInterval(() => { if (cryptoKey && Date.now() - lastActive > IDLE_MS) lock(); }, 15000);
+// Save straight away when the app is put in the background or closed.
+const flush = () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; persistAll(); } };
+addEventListener("pagehide", flush);
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { hiddenAt = Date.now(); if (cryptoKey) document.body.classList.add("privacy-blur"); }
+  if (document.hidden) { flush(); hiddenAt = Date.now(); if (cryptoKey) document.body.classList.add("privacy-blur"); }
   else {
     document.body.classList.remove("privacy-blur");
     if (cryptoKey && hiddenAt && Date.now() - hiddenAt > AWAY_MS) lock();
